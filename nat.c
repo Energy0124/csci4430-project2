@@ -64,9 +64,19 @@ static int Callback(struct nfq_q_handle *qh, struct nfgenmsg *msg,
 
     // Access header
     struct iphdr *iph = (struct iphdr*) pktData;
-    printf("address:%d\n",iph->saddr);
-    printf("address:%d\n",iph->daddr);
+    int sport, dport;           /* Source and destination ports */
+    //int saddr, daddr;           /* Source and destination addresses */
+    /* Convert network endianness to host endiannes */
 
+   // sport = ntohs(tcph->source);
+    //dport = ntohs(tcph->dest);
+    //printf("print_tcp: %p -> %p\n", &saddr, &daddr);
+
+    char *saddr = inet_ntoa(*(struct in_addr *)&iph->saddr);
+    fprintf(stdout,"saddr=%s; ",saddr);
+
+    char *daddr = inet_ntoa(*(struct in_addr *)&iph->daddr);
+    fprintf(stdout,"daddr=%s}\n",daddr);
     // TCP packets
 /*    if (iph->protocol == IPPROTO_TCP) {
         printf("");

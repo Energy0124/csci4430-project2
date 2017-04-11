@@ -13,3 +13,6 @@ Header file to include for using "checksum.c"
 
 Functions for calculating header checksums for a packet
 i.e., "ip_checksum()" for IP headers, "tcp_checksum()" for TCP headers, and "udp_checksum()" for UDP headers
+
+Usage: sudo ./nat <public ip> <internal ip> <subnet mask>
+** Remember add sudo **
