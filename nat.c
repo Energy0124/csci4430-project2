@@ -18,7 +18,7 @@
 // Global variables
 struct sockaddr_in public_addr;
 struct sockaddr_in internal_addr;
-
+int subnet_mask;
 static int Callback(struct nfq_q_handle *qh, struct nfgenmsg *msg,
                     struct nfq_data *pkt, void *data) {
     int i;
@@ -62,21 +62,44 @@ static int Callback(struct nfq_q_handle *qh, struct nfgenmsg *msg,
     }
     printf("]\n");
 
-    // Access header
+    // Get IP header
     struct iphdr *iph = (struct iphdr*) pktData;
     int sport, dport;           /* Source and destination ports */
-    //int saddr, daddr;           /* Source and destination addresses */
-    /* Convert network endianness to host endiannes */
-
-   // sport = ntohs(tcph->source);
-    //dport = ntohs(tcph->dest);
-    //printf("print_tcp: %p -> %p\n", &saddr, &daddr);
 
     char *saddr = inet_ntoa(*(struct in_addr *)&iph->saddr);
-    fprintf(stdout,"saddr=%s; ",saddr);
+    fprintf(stdout,"before saddr=%s; ",saddr);
 
     char *daddr = inet_ntoa(*(struct in_addr *)&iph->daddr);
     fprintf(stdout,"daddr=%s}\n",daddr);
+
+    // Get TCP header
+    struct tcphdr *tcph = (struct tcphdr *) (((char*) iph)  + (iph->ihl << 2));
+
+    sport = tcph->source;
+    dport = tcph->dest;
+
+
+    printf("port:%d dest:%d\n", sport,dport);
+    iph->saddr = public_addr.sin_addr.s_addr;
+    printf("%s\n",inet_ntoa(public_addr.sin_addr));
+
+    saddr = inet_ntoa(*(struct in_addr *)&iph->saddr);
+    fprintf(stdout,"after saddr=%s; ",saddr);
+
+
+    int mask_int = atoi(subnet_mask);
+     int local_mask = 0xffffffff << (32 - mask_int);
+
+    unsigned int local_network = internal_addr.sin_addr.s_addr & local_mask;
+
+    if ( (ntohl(iph->saddr) & local_mask) == local_network) {
+// outbound traffic
+        printf("this is outbound\n");
+    } else {
+// inbound traffic
+        printf("this is inbound\n");
+    }
+
     // TCP packets
 /*    if (iph->protocol == IPPROTO_TCP) {
         printf("");
@@ -134,7 +157,7 @@ int main(int argc, char **argv){
             exit(1);
         }
 
-
+        subnet_mask = argv[3];
 
         // Open library handle
         if (!(h = nfq_open())) {
