@@ -15,6 +15,33 @@
 #include <netinet/tcp.h>
 
 
+#define BYTE_TO_BINARY_PATTERN "%c%c%c%c%c%c%c%c"
+#define BYTE_TO_BINARY(byte)  \
+  (byte & 0x80 ? '1' : '0'), \
+  (byte & 0x40 ? '1' : '0'), \
+  (byte & 0x20 ? '1' : '0'), \
+  (byte & 0x10 ? '1' : '0'), \
+  (byte & 0x08 ? '1' : '0'), \
+  (byte & 0x04 ? '1' : '0'), \
+  (byte & 0x02 ? '1' : '0'), \
+  (byte & 0x01 ? '1' : '0')
+//assumes little endian
+void printBits(size_t const size, void const * const ptr)
+{
+    unsigned char *b = (unsigned char*) ptr;
+    unsigned char byte;
+    int i, j;
+
+    for (i=size-1;i>=0;i--)
+    {
+        for (j=7;j>=0;j--)
+        {
+            byte = (b[i] >> j) & 1;
+            printf("%u", byte);
+        }
+    }
+    puts("");
+}
 // Global variables
 struct sockaddr_in public_addr;
 struct sockaddr_in internal_addr;
@@ -80,10 +107,30 @@ static int Callback(struct nfq_q_handle *qh, struct nfgenmsg *msg,
 
     int mask_int = atoi(subnet_mask);
     int local_mask = 0xffffffff << (32 - mask_int);
+    printf("mask_int: \n");
+    printBits(sizeof(mask_int),&mask_int);
 
-    unsigned int local_network = internal_addr.sin_addr.s_addr & local_mask;
-    sport = tcph->source;
-    dport = tcph->dest;
+    printf("local_mask: \n");
+    printBits(sizeof(local_mask),&local_mask);
+
+
+
+    unsigned int local_network = ntohl(internal_addr.sin_addr.s_addr )& local_mask;
+    printf("local_network: \n");
+    printBits(sizeof(local_network),&local_network);
+//    char temp_str[INET_ADDRSTRLEN];
+//    inet_ntop(AF_INET, &(internal_addr.sin_addr), temp_str, INET_ADDRSTRLEN);
+//    printf("local network: %s\n",temp_str);
+    sport = ntohs(tcph->source);
+    dport = ntohs(tcph->dest);
+
+    int tempip=ntohl(iph->saddr);
+    printf("source ip: \n");
+    printBits(sizeof(tempip),&tempip);
+    tempip=ntohl(iph->saddr) & local_mask;
+    printf("source ip&local_mask: \n");
+    printBits(sizeof(tempip),&tempip);
+
     if ( (ntohl(iph->saddr) & local_mask) == local_network) {
 // outbound traffic
         printf("this is outbound\n");
