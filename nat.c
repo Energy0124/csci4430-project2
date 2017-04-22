@@ -46,6 +46,9 @@ void printBits(size_t const size, void const * const ptr)
 struct sockaddr_in public_addr;
 struct sockaddr_in internal_addr;
 char * subnet_mask;
+int port_list[2000]; // -1 is unused
+int port_counter = 0;
+
 static int Callback(struct nfq_q_handle *qh, struct nfgenmsg *msg,
                     struct nfq_data *pkt, void *data) {
     int i;
@@ -93,10 +96,10 @@ static int Callback(struct nfq_q_handle *qh, struct nfgenmsg *msg,
     struct iphdr *iph = (struct iphdr*) pktData;
 
     char *saddr = inet_ntoa(*(struct in_addr *)&iph->saddr);
-    fprintf(stdout,"before saddr=%s; ",saddr);
+    fprintf(stdout,"before source=%s; ",saddr);
 
     char *daddr = inet_ntoa(*(struct in_addr *)&iph->daddr);
-    fprintf(stdout,"daddr=%s}\n",daddr);
+    fprintf(stdout,"destination=%s}\n",daddr);
 
     // Get TCP header
     struct tcphdr *tcph = (struct tcphdr *) (((char*) iph)  + (iph->ihl << 2));
@@ -124,6 +127,18 @@ static int Callback(struct nfq_q_handle *qh, struct nfgenmsg *msg,
     sport = ntohs(tcph->source);
     dport = ntohs(tcph->dest);
 
+// NAT port entries checking
+    int port = 0;
+    int counter = 0;
+    while(counter < 2000){
+        if(port_list[counter] == -1){
+            port = 12000 + counter ;
+            port_list[counter] = port;
+            break;
+        }
+
+        counter ++;
+    }
     int tempip=ntohl(iph->saddr);
     printf("source ip: \n");
     printBits(sizeof(tempip),&tempip);
@@ -134,8 +149,6 @@ static int Callback(struct nfq_q_handle *qh, struct nfgenmsg *msg,
     if ( (ntohl(iph->saddr) & local_mask) == local_network) {
 // outbound traffic
         printf("this is outbound\n");
-
-
 
         printf("port:%d dest:%d\n", sport,dport);
         iph->saddr = public_addr.sin_addr.s_addr;
@@ -198,6 +211,9 @@ int main(int argc, char **argv){
     }
     else
     {
+        for (int  i = 0; i < 2000; i++ ) {
+            port_list[ i ] = -1; /* initialize to -1*/
+        }
         if (inet_pton(AF_INET, (const char *) argv[1], &public_addr.sin_addr) == 0) {
             fprintf(stderr, "%s (line %d): %s - inet_pton():\n", __FILE__, __LINE__, __FUNCTION__);
             fprintf(stderr, "\tError message: Wrong public IP address format\n");
