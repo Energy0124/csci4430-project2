@@ -64,7 +64,6 @@ static int Callback(struct nfq_q_handle *qh, struct nfgenmsg *msg,
 
     // Get IP header
     struct iphdr *iph = (struct iphdr*) pktData;
-    int sport, dport;           /* Source and destination ports */
 
     char *saddr = inet_ntoa(*(struct in_addr *)&iph->saddr);
     fprintf(stdout,"before saddr=%s; ",saddr);
@@ -75,29 +74,36 @@ static int Callback(struct nfq_q_handle *qh, struct nfgenmsg *msg,
     // Get TCP header
     struct tcphdr *tcph = (struct tcphdr *) (((char*) iph)  + (iph->ihl << 2));
 
-    sport = tcph->source;
-    dport = tcph->dest;
+    int sport, dport;           /* Source and destination ports */
 
-
-    printf("port:%d dest:%d\n", sport,dport);
-    iph->saddr = public_addr.sin_addr.s_addr;
-    printf("%s\n",inet_ntoa(public_addr.sin_addr));
-
-    saddr = inet_ntoa(*(struct in_addr *)&iph->saddr);
-    fprintf(stdout,"after saddr=%s; ",saddr);
 
 
     int mask_int = atoi(subnet_mask);
-     int local_mask = 0xffffffff << (32 - mask_int);
+    int local_mask = 0xffffffff << (32 - mask_int);
 
     unsigned int local_network = internal_addr.sin_addr.s_addr & local_mask;
 
     if ( (ntohl(iph->saddr) & local_mask) == local_network) {
 // outbound traffic
         printf("this is outbound\n");
+        sport = tcph->source;
+        dport = tcph->dest;
+
+
+        printf("port:%d dest:%d\n", sport,dport);
+        iph->saddr = public_addr.sin_addr.s_addr;
+
+        saddr = inet_ntoa(*(struct in_addr *)&iph->saddr);
+        fprintf(stdout,"after change address=%s; ",saddr);
     } else {
 // inbound traffic
         printf("this is inbound\n");
+
+        printf("port:%d dest:%d\n", sport,dport);
+        iph->daddr = internal_addr.sin_addr.s_addr;
+
+        daddr = inet_ntoa(*(struct in_addr *)&iph->daddr);
+        fprintf(stdout,"after change address=%s; ",daddr);
     }
 
     // TCP packets
