@@ -28,6 +28,15 @@
   (byte & 0x02 ? '1' : '0'), \
   (byte & 0x01 ? '1' : '0')
 
+
+// Global variables
+struct sockaddr_in public_addr;
+struct sockaddr_in internal_addr;
+char *subnet_mask;
+int original_port[2000]; // -1 is unused
+in_addr_t original_IP[2000];
+int table_size=0;
+
 //assumes little endian
 void printBits(size_t const size, void const *const ptr) {
     unsigned char *b = (unsigned char *) ptr;
@@ -51,13 +60,22 @@ void print_mapping(in_addr_t o_IP, int o_port, char *s_IP, int s_port) {
     printf("Translated source IP address: %s\n", s_IP);
     printf("Translated source port : %d\n", s_port);
 }
+void print_table() {
+    printf("nat table:\n");
+    int i;
+    for ( i = 0; i < table_size; ++i) {
+        printf("Entry : %d\n", i);
 
-// Global variables
-struct sockaddr_in public_addr;
-struct sockaddr_in internal_addr;
-char *subnet_mask;
-int original_port[2000]; // -1 is unused
-in_addr_t original_IP[2000];
+        struct in_addr o_ip_struct;
+        o_ip_struct.s_addr = original_IP[i];
+        printf("Original source IP address: %s\n", inet_ntoa(o_ip_struct));
+        printf("Original source port: %d\n", original_port[i]);
+        printf("Translated source IP address: %s\n", inet_ntoa(public_addr.sin_addr));
+        printf("Translated source port : %d\n", i+10000);
+    }
+
+}
+
 
 
 static int Callback(struct nfq_q_handle *qh, struct nfgenmsg *msg,
@@ -124,16 +142,16 @@ static int Callback(struct nfq_q_handle *qh, struct nfgenmsg *msg,
 
     int mask_int = atoi(subnet_mask);
     int local_mask = 0xffffffff << (32 - mask_int);
-    printf("mask_int: \n");
-    printBits(sizeof(mask_int), &mask_int);
-
-    printf("local_mask: \n");
-    printBits(sizeof(local_mask), &local_mask);
+//    printf("mask_int: \n");
+//    printBits(sizeof(mask_int), &mask_int);
+//
+//    printf("local_mask: \n");
+//    printBits(sizeof(local_mask), &local_mask);
 
 
     unsigned int local_network = ntohl(internal_addr.sin_addr.s_addr) & local_mask;
-    printf("local_network: \n");
-    printBits(sizeof(local_network), &local_network);
+//    printf("local_network: \n");
+//    printBits(sizeof(local_network), &local_network);
 //    char temp_str[INET_ADDRSTRLEN];
 //    inet_ntop(AF_INET, &(internal_addr.sin_addr), temp_str, INET_ADDRSTRLEN);
 //    printf("local network: %s\n",temp_str);
@@ -146,11 +164,11 @@ static int Callback(struct nfq_q_handle *qh, struct nfgenmsg *msg,
 
 
     int tempip = ntohl(iph->saddr);
-    printf("source ip: \n");
-    printBits(sizeof(tempip), &tempip);
+//    printf("source ip: \n");
+//    printBits(sizeof(tempip), &tempip);
     tempip = ntohl(iph->saddr) & local_mask;
-    printf("source ip&local_mask: \n");
-    printBits(sizeof(tempip), &tempip);
+//    printf("source ip&local_mask: \n");
+//    printBits(sizeof(tempip), &tempip);
 
     if ((ntohl(iph->saddr) & local_mask) == local_network) {
 // outbound traffic
@@ -171,16 +189,20 @@ static int Callback(struct nfq_q_handle *qh, struct nfgenmsg *msg,
             }
 
             counter++;
+
         }
 
+        counter=0;
         // If not, create entry and print map update
         if (!found) {
             while (counter < 2000) {
+
                 if (original_port[counter] == -1) {
                     port = 10000 + counter;
                     original_port[counter] = sport;
                     original_IP[counter] = iph->saddr;
-                    print_mapping(original_IP[counter], original_port[counter], daddr, dport);
+                    print_mapping(original_IP[counter], original_port[counter], inet_ntoa(public_addr.sin_addr), port);
+                    table_size++;
                     break;
                 }
 
@@ -199,16 +221,22 @@ static int Callback(struct nfq_q_handle *qh, struct nfgenmsg *msg,
     } else {
 // inbound traffic
         printf("this is inbound\n");
+        printf("Inbound~~~~~~~~~~!!!!!!!\n");
+        printf("Inbound~~~~~~~~~~!!!!!!!\n");
+        printf("Inbound~~~~~~~~~~!!!!!!!\n");
+        printf("Inbound~~~~~~~~~~!!!!!!!\n");
+        printf("Inbound~~~~~~~~~~!!!!!!!\n");
         int port = dport - 10000;
         // port exist
-        if (original_port[port] != -1) {
+        if (port>=0&&original_port[port] != -1) {
             tcph->dest = htons(original_port[port]);
 
         } else {
-            printf("port is not in table\n");
+            printf("port is not in table!\n");
         }
         printf("port:%d dest:%d\n", sport, dport);
         iph->daddr = original_IP[port];
+
 
         daddr = inet_ntoa(*(struct in_addr *) &iph->daddr);
         fprintf(stdout, "after change address=%s; ", daddr);
@@ -218,7 +246,7 @@ static int Callback(struct nfq_q_handle *qh, struct nfgenmsg *msg,
 /*    if (iph->protocol == IPPROTO_TCP) {
         printf("");
     }*/
-
+    print_table();
 
 
     // for the first 20 packeks, a packet[id] is accept, if
