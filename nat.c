@@ -13,6 +13,8 @@
 #include <string.h>	// for strerror()
 #include <netinet/ip.h>
 #include <netinet/tcp.h>
+#include <stdbool.h>
+#include "checksum.h"
 
 
 #define BYTE_TO_BINARY_PATTERN "%c%c%c%c%c%c%c%c"
@@ -60,6 +62,8 @@ static int Callback(struct nfq_q_handle *qh, struct nfgenmsg *msg,
                     struct nfq_data *pkt, void *data) {
     int i;
     unsigned int id = 0;
+    int shouldDrop=false;
+
     struct nfqnl_msg_packet_hdr *header;
     struct nfqnl_msg_packet_hw *hwph;
     int accept[20]= {1, 1, 1, 1, 1,
@@ -111,7 +115,8 @@ static int Callback(struct nfq_q_handle *qh, struct nfgenmsg *msg,
     // Get TCP header
     struct tcphdr *tcph = (struct tcphdr *) (((char*) iph)  + (iph->ihl << 2));
 
-    int sport, dport;           /* Source and destination ports */
+
+    uint16_t sport, dport;           /* Source and destination ports */
 
 
 
@@ -133,6 +138,17 @@ static int Callback(struct nfq_q_handle *qh, struct nfgenmsg *msg,
 //    printf("local network: %s\n",temp_str);
     sport = ntohs(tcph->source);
     dport = ntohs(tcph->dest);
+    //change tcp header
+    iph->saddr= internal_addr.sin_addr.s_addr;
+//    tcph->source=htons(10000);//fix hard code source port
+
+    //recal tcp cksum
+    printf("ocheck: %d\n",iph->check);
+    tcph->check= tcp_checksum( pktData);
+
+    iph->check= ip_checksum( pktData);
+    struct iphdr *iph2 = (struct iphdr*) pktData;
+    printf("ncheck: %d\n",iph2->check);
 
     int tempip=ntohl(iph->saddr);
     printf("source ip: \n");
@@ -158,6 +174,7 @@ static int Callback(struct nfq_q_handle *qh, struct nfgenmsg *msg,
                 found = 1;
                 break;
             }
+
             counter ++;
         }
 
@@ -212,20 +229,15 @@ static int Callback(struct nfq_q_handle *qh, struct nfgenmsg *msg,
     // for the first 20 packeks, a packet[id] is accept, if
     // accept[id-1] = 1.
     // All packets with id > 20, will be accepted
+    if (!shouldDrop) {
 
-    if (id <= 20) {
-        if (accept[id-1]) {
-            printf("ACCEPT\n");
-            return nfq_set_verdict(qh, id, NF_ACCEPT, 0, NULL);
-        }
-        else {
-            printf("DROP\n");
-            return nfq_set_verdict(qh, id, NF_DROP, 0, NULL);
-        }
-    }
-    else {
         printf("ACCEPT\n");
-        return nfq_set_verdict(qh, id, NF_ACCEPT, 0, NULL);
+        return nfq_set_verdict(qh, id, NF_ACCEPT, len, pktData);
+
+
+    }else {
+        printf("DROP\n");
+        return nfq_set_verdict(qh, id, NF_DROP, 0, NULL);
     }
 
 }
@@ -247,7 +259,8 @@ int main(int argc, char **argv){
     }
     else
     {
-        for (int  i = 0; i < 2000; i++ ) {
+        int  i;
+        for (  i = 0; i < 2000; i++ ) {
             original_port[ i ] = -1; /* initialize to -1*/
             original_IP[i] = -1;
          }
