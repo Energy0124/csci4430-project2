@@ -17,26 +17,17 @@
 #include "checksum.h"
 
 
-#define BYTE_TO_BINARY_PATTERN "%c%c%c%c%c%c%c%c"
-#define BYTE_TO_BINARY(byte)  \
-  (byte & 0x80 ? '1' : '0'), \
-  (byte & 0x40 ? '1' : '0'), \
-  (byte & 0x20 ? '1' : '0'), \
-  (byte & 0x10 ? '1' : '0'), \
-  (byte & 0x08 ? '1' : '0'), \
-  (byte & 0x04 ? '1' : '0'), \
-  (byte & 0x02 ? '1' : '0'), \
-  (byte & 0x01 ? '1' : '0')
+#define MAX_NAT_TABLE_SIZE 2001
 
 
 // Global variables
 struct sockaddr_in public_addr;
 struct sockaddr_in internal_addr;
 char *subnet_mask;
-int original_port[2000]; // -1 is unused
-int translated_port[2000];
-in_addr_t original_IP[2000];
-int table_size=0;
+int original_port[MAX_NAT_TABLE_SIZE]; // -1 is unused
+int translated_port[MAX_NAT_TABLE_SIZE];
+in_addr_t original_IP[MAX_NAT_TABLE_SIZE];
+int used_port_count = 0; //max = 20001
 
 //assumes little endian
 void printBits(size_t const size, void const *const ptr) {
@@ -61,10 +52,11 @@ void print_mapping(in_addr_t o_IP, int o_port, char *s_IP, int s_port) {
     printf("Translated source IP address: %s\n", s_IP);
     printf("Translated source port : %d\n", s_port);
 }
+
 void print_table() {
     printf("nat table:\n");
     int i;
-    for ( i = 0; i < table_size; ++i) {
+    for (i = 0; i < used_port_count; ++i) {
         printf("Entry : %d\n", i);
 
         struct in_addr o_ip_struct;
@@ -72,11 +64,10 @@ void print_table() {
         printf("Original source IP address: %s\n", inet_ntoa(o_ip_struct));
         printf("Original source port: %d\n", original_port[i]);
         printf("Translated source IP address: %s\n", inet_ntoa(public_addr.sin_addr));
-        printf("Translated source port : %d\n", i+10000);
+        printf("Translated source port : %d\n", translated_port[i]);
     }
 
 }
-
 
 
 static int Callback(struct nfq_q_handle *qh, struct nfgenmsg *msg,
@@ -87,10 +78,7 @@ static int Callback(struct nfq_q_handle *qh, struct nfgenmsg *msg,
 
     struct nfqnl_msg_packet_hdr *header;
     struct nfqnl_msg_packet_hw *hwph;
-    int accept[20] = {1, 1, 1, 1, 1,
-                      1, 1, 1, 1, 1,
-                      1, 1, 1, 1, 1,
-                      1, 1, 1, 1, 1};
+
 
     // print hw_protocol, hook and id
 
@@ -133,129 +121,130 @@ static int Callback(struct nfq_q_handle *qh, struct nfgenmsg *msg,
     char *daddr = inet_ntoa(*(struct in_addr *) &iph->daddr);
     fprintf(stdout, "destination=%s}\n", daddr);
 
-    // Get TCP header
-    struct tcphdr *tcph = (struct tcphdr *) (((char *) iph) + (iph->ihl << 2));
 
 
-    uint16_t sport, dport;           /* Source and destination ports */
+    //do thing only when protocol == tcp
+    if (iph->protocol == IPPROTO_TCP) {
+
+        struct tcphdr *tcph = NULL;
+        // Get TCP header
+        tcph = (struct tcphdr *) (((char *) iph) + (iph->ihl << 2));
 
 
-
-    int mask_int = atoi(subnet_mask);
-    int local_mask = 0xffffffff << (32 - mask_int);
-//    printf("mask_int: \n");
-//    printBits(sizeof(mask_int), &mask_int);
-//
-//    printf("local_mask: \n");
-//    printBits(sizeof(local_mask), &local_mask);
-
-
-    unsigned int local_network = ntohl(internal_addr.sin_addr.s_addr) & local_mask;
-//    printf("local_network: \n");
-//    printBits(sizeof(local_network), &local_network);
-//    char temp_str[INET_ADDRSTRLEN];
-//    inet_ntop(AF_INET, &(internal_addr.sin_addr), temp_str, INET_ADDRSTRLEN);
-//    printf("local network: %s\n",temp_str);
-    sport = ntohs(tcph->source);
-    dport = ntohs(tcph->dest);
-    //change tcp header
-//    iph->saddr= internal_addr.sin_addr.s_addr;
-//    tcph->source=htons(10000);//fix hard code source port
+        uint16_t sport, dport;           /* Source and destination ports */
 
 
 
-    int tempip = ntohl(iph->saddr);
-//    printf("source ip: \n");
-//    printBits(sizeof(tempip), &tempip);
-    tempip = ntohl(iph->saddr) & local_mask;
-//    printf("source ip&local_mask: \n");
-//    printBits(sizeof(tempip), &tempip);
-
-    if ((ntohl(iph->saddr) & local_mask) == local_network) {
-// outbound traffic
-        printf("this is outbound\n");
+        int mask_int = atoi(subnet_mask);
+        int local_mask = 0xffffffff << (32 - mask_int);
+        //    printf("mask_int: \n");
+        //    printBits(sizeof(mask_int), &mask_int);
+        //
+        //    printf("local_mask: \n");
+        //    printBits(sizeof(local_mask), &local_mask);
 
 
-        // NAT port entries checking
-        int port = 0;
-        int counter = 0;
-        int found = 0;
+        unsigned int local_network = ntohl(internal_addr.sin_addr.s_addr) & local_mask;
+        //    printf("local_network: \n");
+        //    printBits(sizeof(local_network), &local_network);
+        //    char temp_str[INET_ADDRSTRLEN];
+        //    inet_ntop(AF_INET, &(internal_addr.sin_addr), temp_str, INET_ADDRSTRLEN);
+        //    printf("local network: %s\n",temp_str);
+        sport = ntohs(tcph->source);
+        dport = ntohs(tcph->dest);
+        //change tcp header
+        //    iph->saddr= internal_addr.sin_addr.s_addr;
+        //    tcph->source=htons(10000);//fix hard code source port
 
-        // First check is the source IP already in NAT table
-        while (counter < 2000) {
-            if (original_port[counter] == sport) {
-                port = 10000 + counter;
-                found = 1;
-                break;
-            }
 
-            counter++;
 
-        }
+        int tempip = ntohl(iph->saddr);
+        //    printf("source ip: \n");
+        //    printBits(sizeof(tempip), &tempip);
+        tempip = ntohl(iph->saddr) & local_mask;
+        //    printf("source ip&local_mask: \n");
+        //    printBits(sizeof(tempip), &tempip);
 
-        counter=0;
-        // If not, create entry and print map update
-        if (!found) {
-            while (counter < 2000) {
+        if ((ntohl(iph->saddr) & local_mask) == local_network) {
+            // outbound traffic
+            printf("this is outbound\n");
 
-                if (original_port[counter] == -1) {
+
+            // NAT port entries checking
+            int port = 0;
+            int counter = 0;
+            int found = 0;
+
+            // First check is the source IP already in NAT table
+            while (counter < MAX_NAT_TABLE_SIZE) {
+                if (original_port[counter] == sport) {
                     port = 10000 + counter;
-                    original_port[counter] = sport;
-                    original_IP[counter] = iph->saddr;
-                    translated_port[counter] = port;
-                    print_mapping(original_IP[counter], original_port[counter], inet_ntoa(public_addr.sin_addr), port);
-                    table_size++;
+                    found = 1;
                     break;
                 }
 
                 counter++;
+
             }
-        }
 
-        // replace source port of every outgoing datagram to NAT IP address, new port
-        //todo: remove hard code
-        //port =10100;
-        tcph->source = htons(port);
-        printf("port:%d dest:%d\n", ntohs(tcph->source), dport);
-        iph->saddr = public_addr.sin_addr.s_addr;
+            counter = 0;
+            // If not, create entry and print map update
+            if (!found) {
+                while (counter < MAX_NAT_TABLE_SIZE) {
 
-        saddr = inet_ntoa(*(struct in_addr *) &iph->saddr);
-        fprintf(stdout, "after change address=%s; ", saddr);
-    } else {
-// inbound traffic
-        printf("this is inbound\n");
-        printf("Inbound~~~~~~~~~~!!!!!!!\n");
-        printf("Inbound~~~~~~~~~~!!!!!!!\n");
-        printf("Inbound~~~~~~~~~~!!!!!!!\n");
-        printf("Inbound~~~~~~~~~~!!!!!!!\n");
-        printf("Inbound~~~~~~~~~~!!!!!!!\n");
-        int port = dport - 10000;
-        // port exist
-        if (port>=0&&original_port[port] != -1) {
-            tcph->dest = htons(original_port[port]);
+                    if (original_port[counter] == -1) {
+                        port = 10000 + counter;
+                        original_port[counter] = sport;
+                        original_IP[counter] = iph->saddr;
+                        translated_port[counter] = port;
+                        print_mapping(original_IP[counter], original_port[counter], inet_ntoa(public_addr.sin_addr),
+                                      translated_port[counter]);
+                        used_port_count++;
+                        break;
+                    }
 
+                    counter++;
+                }
+            }
+
+            // replace source port of every outgoing datagram to NAT IP address, new port
+            //todo: remove hard code
+            //port =10100;
+            tcph->source = htons(port);
+            printf("port:%d dest:%d\n", ntohs(tcph->source), dport);
+            iph->saddr = public_addr.sin_addr.s_addr;
+
+            saddr = inet_ntoa(*(struct in_addr *) &iph->saddr);
+            fprintf(stdout, "after change address=%s; \n", saddr);
         } else {
-            printf("port is not in table!\n");
+            // inbound traffic
+            printf("this is inbound\n");
+            printf("Inbound~~~~~~~~~~!!!!!!!\n");
+            printf("Inbound~~~~~~~~~~!!!!!!!\n");
+            printf("Inbound~~~~~~~~~~!!!!!!!\n");
+            printf("Inbound~~~~~~~~~~!!!!!!!\n");
+            printf("Inbound~~~~~~~~~~!!!!!!!\n");
+            int port = dport - 10000;
+            // port exist
+            if (port >= 0 && original_port[port] != -1) {
+                tcph->dest = htons(original_port[port]);
+
+            } else {
+                printf("port is not in table!\n");
+            }
+            printf("port:%d dest:%d\n", sport, dport);
+            iph->daddr = original_IP[port];
+
+
+            daddr = inet_ntoa(*(struct in_addr *) &iph->daddr);
+            fprintf(stdout, "after change address=%s; \n", daddr);
         }
-        printf("port:%d dest:%d\n", sport, dport);
-        iph->daddr = original_IP[port];
 
-
-        daddr = inet_ntoa(*(struct in_addr *) &iph->daddr);
-        fprintf(stdout, "after change address=%s; ", daddr);
-    }
-
-    // TCP packets
-/*    if (iph->protocol == IPPROTO_TCP) {
-        printf("");
-    }*/
-    print_table();
-
-
-    // for the first 20 packeks, a packet[id] is accept, if
-    // accept[id-1] = 1.
-    // All packets with id > 20, will be accepted
-    if (!shouldDrop) {
+        // TCP packets
+        /*    if (iph->protocol == IPPROTO_TCP) {
+                printf("");
+            }*/
+        print_table();
         //recal tcp cksum
         printf("ocheck: %d\n", iph->check);
         tcph->check = 0;
@@ -266,12 +255,24 @@ static int Callback(struct nfq_q_handle *qh, struct nfgenmsg *msg,
         struct iphdr *iph2 = (struct iphdr *) pktData;
         printf("ncheck: %d\n", iph2->check);
 
-        printf("ACCEPT\n");
+    } else { //not tcp should drop
+        shouldDrop = true;
+    }
+
+
+
+    // for the first 20 packeks, a packet[id] is accept, if
+    // accept[id-1] = 1.
+    // All packets with id > 20, will be accepted
+    if (!shouldDrop) {
+
+
+        printf("\nACCEPT\n");
         return nfq_set_verdict(qh, id, NF_ACCEPT, len, pktData);
 
 
     } else {
-        printf("DROP\n");
+        printf("\nDROP\n");
         return nfq_set_verdict(qh, id, NF_DROP, 0, NULL);
     }
 
@@ -293,7 +294,7 @@ int main(int argc, char **argv) {
         exit(-1);
     } else {
         int i;
-        for (i = 0; i < 2000; i++) {
+        for (i = 0; i < MAX_NAT_TABLE_SIZE; i++) {
             original_port[i] = -1; /* initialize to -1*/
             translated_port[i] = -1;
             original_IP[i] = 0;
