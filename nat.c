@@ -18,7 +18,7 @@
 // Global variables
 struct sockaddr_in public_addr;
 struct sockaddr_in internal_addr;
-int subnet_mask;
+char * subnet_mask;
 static int Callback(struct nfq_q_handle *qh, struct nfgenmsg *msg,
                     struct nfq_data *pkt, void *data) {
     int i;
@@ -82,12 +82,12 @@ static int Callback(struct nfq_q_handle *qh, struct nfgenmsg *msg,
     int local_mask = 0xffffffff << (32 - mask_int);
 
     unsigned int local_network = internal_addr.sin_addr.s_addr & local_mask;
-
+    sport = tcph->source;
+    dport = tcph->dest;
     if ( (ntohl(iph->saddr) & local_mask) == local_network) {
 // outbound traffic
         printf("this is outbound\n");
-        sport = tcph->source;
-        dport = tcph->dest;
+
 
 
         printf("port:%d dest:%d\n", sport,dport);
