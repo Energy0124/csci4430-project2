@@ -42,12 +42,19 @@ void printBits(size_t const size, void const * const ptr)
     }
     puts("");
 }
+
+void print_mapping(char * o_IP,int o_port, char * s_IP, int s_port ){
+    printf("Original source IP address: %s\n",o_IP);
+    printf("Original source port: %d\n",o_port);
+    printf("Translated source IP address: %s\n",s_IP);
+    printf("Translated source port : %d\n",s_port);
+}
 // Global variables
 struct sockaddr_in public_addr;
 struct sockaddr_in internal_addr;
 char * subnet_mask;
-int newport_list[2000]; // -1 is unused
-int port_counter = 0;
+int original_port[2000]; // -1 is unused
+char * original_IP[2000];
 
 static int Callback(struct nfq_q_handle *qh, struct nfgenmsg *msg,
                     struct nfq_data *pkt, void *data) {
@@ -142,15 +149,33 @@ static int Callback(struct nfq_q_handle *qh, struct nfgenmsg *msg,
         // NAT port entries checking
         int port = 0;
         int counter = 0;
+        int found = 0;
+
+        // First check is the source IP already in NAT table
         while(counter < 2000){
-            if(newport_list[counter] == -1){
+            if(original_port[counter] == sport){
                 port = 10000 + counter ;
-                newport_list[counter] = sport;
+                found = 1;
                 break;
             }
-
             counter ++;
         }
+
+        // If not, create entry and print map update
+        if(!found){
+            while(counter < 2000){
+                if(original_port[counter] == -1){
+                    port = 10000 + counter ;
+                    original_port[counter] = sport;
+                    original_IP[counter] = saddr;
+                    print_mapping(original_IP[counter],original_port[counter],daddr,dport);
+                    break;
+                }
+
+                counter ++;
+            }
+        }
+
         // replace source port of every outgoing datagram to NAT IP address, new port
 
         tcph->source = htons(port);
@@ -164,8 +189,9 @@ static int Callback(struct nfq_q_handle *qh, struct nfgenmsg *msg,
         printf("this is inbound\n");
         int port = dport - 10000;
         // port exist
-        if( newport_list[port] != -1){
-            tcph->dest = htons(newport_list[port]);
+        if( original_port[port] != -1){
+            tcph->dest = htons(original_port[port]);
+
         } else{
             printf("port is not in table\n");
         }
@@ -222,8 +248,9 @@ int main(int argc, char **argv){
     else
     {
         for (int  i = 0; i < 2000; i++ ) {
-            newport_list[ i ] = -1; /* initialize to -1*/
-        }
+            original_port[ i ] = -1; /* initialize to -1*/
+            original_IP[i] = -1;
+         }
         if (inet_pton(AF_INET, (const char *) argv[1], &public_addr.sin_addr) == 0) {
             fprintf(stderr, "%s (line %d): %s - inet_pton():\n", __FILE__, __LINE__, __FUNCTION__);
             fprintf(stderr, "\tError message: Wrong public IP address format\n");
