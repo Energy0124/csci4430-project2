@@ -257,6 +257,9 @@ static int Callback(struct nfq_q_handle *qh, struct nfgenmsg *msg,
 
     } else { //not tcp should drop
         shouldDrop = true;
+        printf("not tcp!!!\n");
+        printf("protocol: %d\n", iph->protocol);
+
     }
 
 
