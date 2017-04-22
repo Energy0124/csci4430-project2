@@ -134,7 +134,7 @@ static int Callback(struct nfq_q_handle *qh, struct nfgenmsg *msg,
     dport = ntohs(tcph->dest);
     //change tcp header
     iph->saddr= internal_addr.sin_addr.s_addr;
-    tcph->source=htons(10000);//fix hard code source port
+//    tcph->source=htons(10000);//fix hard code source port
 
     //recal tcp cksum
     printf("ocheck: %d\n",iph->check);
