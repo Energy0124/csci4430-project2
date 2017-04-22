@@ -46,7 +46,7 @@ void printBits(size_t const size, void const * const ptr)
 struct sockaddr_in public_addr;
 struct sockaddr_in internal_addr;
 char * subnet_mask;
-int port_list[2000]; // -1 is unused
+int newport_list[2000]; // -1 is unused
 int port_counter = 0;
 
 static int Callback(struct nfq_q_handle *qh, struct nfgenmsg *msg,
@@ -127,18 +127,6 @@ static int Callback(struct nfq_q_handle *qh, struct nfgenmsg *msg,
     sport = ntohs(tcph->source);
     dport = ntohs(tcph->dest);
 
-// NAT port entries checking
-    int port = 0;
-    int counter = 0;
-    while(counter < 2000){
-        if(port_list[counter] == -1){
-            port = 12000 + counter ;
-            port_list[counter] = port;
-            break;
-        }
-
-        counter ++;
-    }
     int tempip=ntohl(iph->saddr);
     printf("source ip: \n");
     printBits(sizeof(tempip),&tempip);
@@ -150,7 +138,23 @@ static int Callback(struct nfq_q_handle *qh, struct nfgenmsg *msg,
 // outbound traffic
         printf("this is outbound\n");
 
-        printf("port:%d dest:%d\n", sport,dport);
+
+        // NAT port entries checking
+        int port = 0;
+        int counter = 0;
+        while(counter < 2000){
+            if(newport_list[counter] == -1){
+                port = 10000 + counter ;
+                newport_list[counter] = sport;
+                break;
+            }
+
+            counter ++;
+        }
+        // replace source port of every outgoing datagram to NAT IP address, new port
+
+        tcph->source = htons(port);
+        printf("port:%d dest:%d\n", ntohs(tcph->source),dport);
         iph->saddr = public_addr.sin_addr.s_addr;
 
         saddr = inet_ntoa(*(struct in_addr *)&iph->saddr);
@@ -158,7 +162,13 @@ static int Callback(struct nfq_q_handle *qh, struct nfgenmsg *msg,
     } else {
 // inbound traffic
         printf("this is inbound\n");
-
+        int port = dport - 10000;
+        // port exist
+        if( newport_list[port] != -1){
+            tcph->dest = htons(newport_list[port]);
+        } else{
+            printf("port is not in table\n");
+        }
         printf("port:%d dest:%d\n", sport,dport);
         iph->daddr = internal_addr.sin_addr.s_addr;
 
@@ -212,7 +222,7 @@ int main(int argc, char **argv){
     else
     {
         for (int  i = 0; i < 2000; i++ ) {
-            port_list[ i ] = -1; /* initialize to -1*/
+            newport_list[ i ] = -1; /* initialize to -1*/
         }
         if (inet_pton(AF_INET, (const char *) argv[1], &public_addr.sin_addr) == 0) {
             fprintf(stderr, "%s (line %d): %s - inet_pton():\n", __FILE__, __LINE__, __FUNCTION__);
