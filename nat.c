@@ -213,7 +213,8 @@ static int Callback(struct nfq_q_handle *qh, struct nfgenmsg *msg,
         }
 
         // replace source port of every outgoing datagram to NAT IP address, new port
-
+        //todo: remove hard code
+        //port =10100;
         tcph->source = htons(port);
         printf("port:%d dest:%d\n", ntohs(tcph->source), dport);
         iph->saddr = public_addr.sin_addr.s_addr;
