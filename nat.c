@@ -34,6 +34,7 @@ struct sockaddr_in public_addr;
 struct sockaddr_in internal_addr;
 char *subnet_mask;
 int original_port[2000]; // -1 is unused
+int translated_port[2000];
 in_addr_t original_IP[2000];
 int table_size=0;
 
@@ -201,6 +202,7 @@ static int Callback(struct nfq_q_handle *qh, struct nfgenmsg *msg,
                     port = 10000 + counter;
                     original_port[counter] = sport;
                     original_IP[counter] = iph->saddr;
+                    translated_port[counter] = port;
                     print_mapping(original_IP[counter], original_port[counter], inet_ntoa(public_addr.sin_addr), port);
                     table_size++;
                     break;
@@ -292,6 +294,7 @@ int main(int argc, char **argv) {
         int i;
         for (i = 0; i < 2000; i++) {
             original_port[i] = -1; /* initialize to -1*/
+            translated_port[i] = -1;
             original_IP[i] = 0;
         }
         if (inet_pton(AF_INET, (const char *) argv[1], &public_addr.sin_addr) == 0) {
